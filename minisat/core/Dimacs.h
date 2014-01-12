@@ -85,15 +85,38 @@ static void parse_DIMACS(gzFile input_stream, Solver& S, bool strictp = false) {
 
 template<class B, class Solver>
 static void parse_OPB_main(B& in, Solver& S, bool strictp = false) {
-
+	vec<Lit> lits;
+	vec<int> coefs; 
 	for (;;){
 	    while ((*in==' ')) ++in;//skip spaces
-	    if (*in=='*') skipLine(n);
+	    while (*in=='*') skipLine(in);
 		if (*in == EOF) break;
 		printf("%c",*in);
+        readPSClause(in, S, lits,coefs);
+        S.addPSClause_(lits,coefs);
 		++in;
 	}
 }
+
+template<class B, class Solver>
+static void readPSClause(B& in, Solver& S, vec<int,Lit>& components) {
+    int     parsed_lit, var;
+    components.clear();
+    for (;;)
+    	if (*in=='>'||*in=='<'||*in=='=')
+    	{
+    		clause_type = parse_type(in);
+    		clause_const = parse_const(in);
+    	}
+    	parsed_lit = parseInt(in);
+        parsed_lit = parseInt(in);
+        if (parsed_lit == 0) break;
+        var = abs(parsed_lit)-1;
+        while (var >= S.nVars()) S.newVar();
+        lits.push( (parsed_lit > 0) ? mkLit(var) : ~mkLit(var) );
+    }
+}
+
 template<class Solver>
 static void parse_OPB(gzFile input_stream, Solver& S, bool strictp = false){
 	StreamBuffer in(input_stream);
