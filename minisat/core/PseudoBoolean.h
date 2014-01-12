@@ -29,11 +29,15 @@ class PSClause{
 
 template<class B, class Solver>
 static void readPSClause(B& in, Solver& S, PSClause& clause) {
-    int     parsed_lit, var;
-    for (;;)
+    int     parsed_lit, var,parsed_coef;
+    while(*in!=';')
     {
+    	while(*in==' ') ++in;
+    	//printf("in:%c",*in);
     	switch(*in)
     	{
+    	case ';':
+    		break;
     	case '>':
     		++in;
     		if(*in == '=')
@@ -45,7 +49,6 @@ static void readPSClause(B& in, Solver& S, PSClause& clause) {
     		break;
     	case '<':
     		++in;
-
     	    if(*in == '=')
     	    {
     	    	clause.clause_sign = small_or_equal_sign;
@@ -59,14 +62,16 @@ static void readPSClause(B& in, Solver& S, PSClause& clause) {
     		clause.clause_const = parseInt(in);
     		break;
     	default:
+    		parsed_coef = parseInt(in);
+    		clause.coefs.push(parsed_coef);
+    		if(*in==' ') ++in;
+    		if(*in=='x') ++in;
     		 parsed_lit = parseInt(in);
     		 if (parsed_lit == 0) break;
     		 var = abs(parsed_lit)-1;
     		 while (var >= S.nVars()) S.newVar();
     		 clause.lits.push( (parsed_lit > 0) ? mkLit(var) : ~mkLit(var) );
-    		 while(*in!='x') ++in;
-    		 ++in;
-    		 clause.coefs.push(parseInt(in));
+    		 //printf("%d:x%d ",parsed_coef,parsed_lit);
     	}
     }
 }
@@ -81,16 +86,17 @@ template<class B, class Solver>
 static void parse_OPB_main(B& in, Solver& S, bool strictp = false) {
 	vec<Lit> lits;
 	vec<int> coefs;
-	for (;;){
-	    while ((*in==' ')) ++in;//skip spaces
+	while (*in!=EOF){
+	    while ((*in==' ')||(*in=='\n')) ++in;//skip spaces
 	    while (*in=='*') skipLine(in);
 		if (*in == EOF) break;
-		printf("%c",*in);
+		//printf("%c",*in);
 		PSClause clause;
 		readPSClause(in, S,clause);
         S.addClause(lits);//TODO addPBClause(PSClause clause);
 		++in;
 	}
+	printf("done!");
 }
 }
 #endif /* PSEUDOBOOLEAN_H_ */
