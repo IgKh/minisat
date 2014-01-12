@@ -26,6 +26,8 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/utils/ParseUtils.h"
 #include "minisat/core/SolverTypes.h"
 
+#include <iostream>
+
 namespace Minisat {
 
 //=================================================================================================
@@ -81,6 +83,22 @@ static void parse_DIMACS(gzFile input_stream, Solver& S, bool strictp = false) {
     StreamBuffer in(input_stream);
     parse_DIMACS_main(in, S, strictp); }
 
+template<class B, class Solver>
+static void parse_OPB_main(B& in, Solver& S, bool strictp = false) {
+
+	for (;;){
+	    while ((*in==' ')) ++in;//skip spaces
+	    if (*in=='*') skipLine(n);
+		if (*in == EOF) break;
+		printf("%c",*in);
+		++in;
+	}
+}
+template<class Solver>
+static void parse_OPB(gzFile input_stream, Solver& S, bool strictp = false){
+	StreamBuffer in(input_stream);
+	parse_OPB_main(in, S, strictp);
+}
 //=================================================================================================
 }
 
