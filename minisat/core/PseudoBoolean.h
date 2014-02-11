@@ -17,18 +17,8 @@
 #include <iostream>
 namespace Minisat {
 
-enum PSConstraintSign { big_or_equal_sign = 0,big_sign=1, small_or_equal_sign = 2,small_sign=3, equal_sign = 4 };
-
-class PSClause{
-	public:
-	int clause_const;
-	PSConstraintSign clause_sign;
-	vec<Lit> lits;
-	vec<int> coefs;
-};
-
 template<class B, class Solver>
-static void readPSClause(B& in, Solver& S, PSClause& clause) {
+static void readPbClause(B& in, Solver& S, PbClauseDef& clause) {
     int     parsed_lit, var,parsed_coef;
     while(*in!=';')
     {
@@ -91,10 +81,12 @@ static void parse_OPB_main(B& in, Solver& S, bool strictp = false) {
 	    while (*in=='*') skipLine(in);
 		if (*in == EOF) break;
 		//printf("%c",*in);
-		PSClause clause;
-		readPSClause(in, S,clause);
-        S.addClause(lits);//TODO addPBClause(PSClause clause);
-		++in;
+
+		PbClauseDef clause;
+		readPbClause(in, S,clause);
+        S.addPbClause(clause);//TODO addPBClause(PSClause clause);
+
+        ++in;
 	}
 	printf("done!");
 }

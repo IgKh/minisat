@@ -66,6 +66,7 @@ int main(int argc, char** argv)
         IntOption    cpu_lim("MAIN", "cpu-lim","Limit on CPU time allowed in seconds.\n", 0, IntRange(0, INT32_MAX));
         IntOption    mem_lim("MAIN", "mem-lim","Limit on memory usage in megabytes.\n", 0, IntRange(0, INT32_MAX));
         BoolOption   strictp("MAIN", "strict", "Validate DIMACS header during parsing.", false);
+        BoolOption	 pb_mode("MAIN", "pb-mode", "Interpret input as an OPB file rather than DIMACS", false);
         
         parseOptions(argc, argv, true);
 
@@ -96,8 +97,12 @@ int main(int argc, char** argv)
             printf("|                                                                             |\n"); }
 
 
-        //parse_DIMACS(in, S, (bool)strictp);
-        parse_OPB(in, S, (bool)strictp);
+        if ((bool) pb_mode) {
+        	parse_OPB(in, S, (bool)strictp);
+        }
+        else {
+        	parse_DIMACS(in, S, (bool)strictp);
+        }
         gzclose(in);
         FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
         

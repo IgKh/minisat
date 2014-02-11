@@ -139,18 +139,20 @@ typedef RegionAllocator<uint32_t>::Ref CRef;
 
 class Clause {
     struct {
-        unsigned mark      : 2;
+    	unsigned type	   : 1;
+    	unsigned mark      : 2;
         unsigned learnt    : 1;
         unsigned has_extra : 1;
         unsigned reloced   : 1;
-        unsigned size      : 27; }                        header;
+        unsigned size      : 26; }                        header;
     union { Lit lit; float act; uint32_t abs; CRef rel; } data[0];
 
     friend class ClauseAllocator;
 
     // NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
     Clause(const vec<Lit>& ps, bool use_extra, bool learnt) {
-        header.mark      = 0;
+        header.type		 = 0;
+    	header.mark      = 0;
         header.learnt    = learnt;
         header.has_extra = use_extra;
         header.reloced   = 0;
@@ -164,7 +166,7 @@ class Clause {
                 data[header.size].act = 0;
             else
                 calcAbstraction();
-    }
+        }
     }
 
     // NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
@@ -180,7 +182,7 @@ class Clause {
                 data[header.size].act = from.data[header.size].act;
             else 
                 data[header.size].abs = from.data[header.size].abs;
-    }
+        }
     }
 
 public:
@@ -218,6 +220,56 @@ public:
     void         strengthen  (Lit p);
 };
 
+//=================================================================================================
+// PbClause -- a simple class for representing a pseudo boolean constraint:
+typedef int PbWeightType;
+
+enum PbConstraintSign {
+	big_or_equal_sign = 0,
+	big_sign=1,
+	small_or_equal_sign = 2,
+	small_sign=3,
+	equal_sign = 4
+};
+
+// A convenience structure for defining PB clauses
+struct PbClauseDef {
+	PbWeightType clause_const;
+	PbConstraintSign clause_sign;
+	vec<Lit> lits;
+	vec<PbWeightType> coefs;
+};
+
+// The actual constraint class
+class PbClause {
+	struct {
+		unsigned type 	: 1;
+		unsigned size	: 31;
+	} header;
+	PbWeightType rhs;
+	struct { Lit lit; PbWeightType weight; } data[0];
+
+	friend class ClauseAllocator;
+
+	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
+	PbClause(const PbClauseDef& def) {
+		// TODO: Simplify def
+
+		header.type	= 1;
+		header.size = def.lits.size();
+		rhs 		= def.clause_const;
+
+		for (int i = 0; i < header.size; i++) {
+			data[i].lit = def.lits[i];
+			data[i].weight = def.coefs[i];
+		}
+	}
+
+public:
+	unsigned size() const {
+		return header.size;
+	}
+};
 
 //=================================================================================================
 // ClauseAllocator -- a simple class for allocating memory for clauses:
@@ -229,6 +281,11 @@ class ClauseAllocator
 
     static uint32_t clauseWord32Size(int size, bool has_extra){
         return (sizeof(Clause) + (sizeof(Lit) * (size + (int)has_extra))) / sizeof(uint32_t); }
+
+    static uint32_t pbClauseWord32Size(int size){
+            return (sizeof(PbClause) + sizeof(PbWeightType) +
+            		((sizeof(Lit) + sizeof(PbWeightType)) * size)) / sizeof(uint32_t); }
+
 
  public:
     enum { Unit_Size = RegionAllocator<uint32_t>::Unit_Size };
@@ -260,8 +317,20 @@ class ClauseAllocator
         new (lea(cid)) Clause(from, use_extra);
         return cid; }
 
+    CRef allocPB(const PbClauseDef& def)
+    {
+    	assert(def.lits.size() == def.coefs.size());
+
+    	CRef cid = ra.alloc(pbClauseWord32Size(def.lits.size()));
+    	new (lea(cid)) PbClause(def);
+
+    	return cid;
+    }
+
     uint32_t size      () const      { return ra.size(); }
     uint32_t wasted    () const      { return ra.wasted(); }
+
+    bool isPbClause(CRef r) const { return lea(r)->header.type > 0; }
 
     // Deref, Load Effective Address (LEA), Inverse of LEA (AEL):
     Clause&       operator[](CRef r)         { return (Clause&)ra[r]; }
@@ -272,18 +341,29 @@ class ClauseAllocator
 
     void free(CRef cid)
     {
-        Clause& c = operator[](cid);
-        ra.free(clauseWord32Size(c.size(), c.has_extra()));
+    	if (isPbClause(cid)) {
+    		PbClause& pbc = (PbClause&)ra[cid];
+    		ra.free(pbClauseWord32Size(pbc.size()));
+    	}
+    	else {
+    		Clause& c = operator[](cid);
+    		ra.free(clauseWord32Size(c.size(), c.has_extra()));
+    	}
     }
 
     void reloc(CRef& cr, ClauseAllocator& to)
     {
-        Clause& c = operator[](cr);
+    	if (isPbClause(cr)) {
+
+    	}
+    	else {
+    		Clause& c = operator[](cr);
         
-        if (c.reloced()) { cr = c.relocation(); return; }
+    		if (c.reloced()) { cr = c.relocation(); return; }
         
-        cr = to.alloc(c);
-        c.relocate(cr);
+    		cr = to.alloc(c);
+    		c.relocate(cr);
+    	}
     }
 };
 

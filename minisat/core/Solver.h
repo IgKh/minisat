@@ -56,6 +56,8 @@ public:
     bool    addClause_(      vec<Lit>& ps);                     // Add a clause to the solver without making superflous internal copy. Will
                                                                 // change the passed vector 'ps'.
 
+    bool	addPbClause(const PbClauseDef& def) { return true; }
+
     // Solving:
     //
     bool    simplify     ();                        // Removes already satisfied clauses.
@@ -188,6 +190,7 @@ protected:
     // Solver state:
     //
     vec<CRef>           clauses;          // List of problem clauses.
+    vec<CRef>			pbClauses;		  // List of problem PB caluses.
     vec<CRef>           learnts;          // List of learnt clauses.
     vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
     vec<int>            trail_lim;        // Separator indices for different decision levels in 'trail'.
