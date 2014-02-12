@@ -56,7 +56,7 @@ public:
     bool    addClause_(      vec<Lit>& ps);                     // Add a clause to the solver without making superflous internal copy. Will
                                                                 // change the passed vector 'ps'.
 
-    bool	addPbClause(const PbClauseDef& def) { return true; }
+    bool	addPbClause(const PbClauseDef& def);
 
     // Solving:
     //
@@ -100,6 +100,7 @@ public:
     lbool   modelValue (Lit p) const;       // The value of a literal in the last model. The last call to solve must have been satisfiable.
     int     nAssigns   ()      const;       // The current number of assigned literals.
     int     nClauses   ()      const;       // The current number of original clauses.
+    int		nPbClauses ()      const;       // The current number of original PB caluses.
     int     nLearnts   ()      const;       // The current number of learnt clauses.
     int     nVars      ()      const;       // The current number of variables.
     int     nFreeVars  ()      const;
@@ -152,6 +153,7 @@ public:
     //
     uint64_t solves, starts, decisions, rnd_decisions, propagations, conflicts;
     uint64_t dec_vars, num_clauses, num_learnts, clauses_literals, learnts_literals, max_literals, tot_literals;
+    uint64_t num_pb_clauses, pb_literals;
 
 protected:
 
@@ -274,6 +276,8 @@ protected:
     bool     locked           (const Clause& c) const; // Returns TRUE if a clause is a reason for some implication in the current state.
     bool     satisfied        (const Clause& c) const; // Returns TRUE if a clause is satisfied in the current state.
 
+    bool     addPbCluseIneq	  (PbClauseDef def); // Inserts an inequality PB clause to the solver
+
     // Misc:
     //
     int      decisionLevel    ()      const; // Gives the current decisionlevel.
@@ -356,6 +360,7 @@ inline lbool    Solver::modelValue    (Var x) const   { return model[x]; }
 inline lbool    Solver::modelValue    (Lit p) const   { return model[var(p)] ^ sign(p); }
 inline int      Solver::nAssigns      ()      const   { return trail.size(); }
 inline int      Solver::nClauses      ()      const   { return num_clauses; }
+inline int		Solver::nPbClauses	  ()	  const   { return num_pb_clauses; }
 inline int      Solver::nLearnts      ()      const   { return num_learnts; }
 inline int      Solver::nVars         ()      const   { return next_var; }
 // TODO: nFreeVars() is not quite correct, try to calculate right instead of adapting it like below:

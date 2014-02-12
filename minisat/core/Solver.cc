@@ -82,7 +82,8 @@ Solver::Solver() :
     // Statistics: (formerly in 'SolverStats')
     //
   , solves(0), starts(0), decisions(0), rnd_decisions(0), propagations(0), conflicts(0)
-  , dec_vars(0), num_clauses(0), num_learnts(0), clauses_literals(0), learnts_literals(0), max_literals(0), tot_literals(0)
+  , dec_vars(0), num_clauses(0), num_pb_clauses(0), num_learnts(0), clauses_literals(0)
+  , pb_literals(0), learnts_literals(0), max_literals(0), tot_literals(0)
 
   , watches            (WatcherDeleted(ca))
   , order_heap         (VarOrderLt(activity))
@@ -225,6 +226,101 @@ bool Solver::satisfied(const Clause& c) const {
             return true;
     return false; }
 
+
+bool Solver::addPbClause(const PbClauseDef& def) {
+	assert(decisionLevel() == 0);
+	if (!ok) return false;
+
+	if (def.clause_sign == equal_sign) {
+		// Turn a PB clause with a "=" sign into two inequality
+		// PB clauses
+		PbClauseDef lt(def), gt(def);
+
+		lt.clause_sign = small_or_equal_sign;
+		gt.clause_sign = big_or_equal_sign;
+
+		return (ok = addPbCluseIneq(lt) && addPbCluseIneq(gt));
+	}
+	return (ok = addPbCluseIneq(def));
+}
+
+bool Solver::addPbCluseIneq(PbClauseDef def) {
+	assert (def.clause_sign != equal_sign);
+	assert (def.lits.size() == def.coefs.size());
+
+	// First, turn strict inequalities into their non-strict counterparts
+	if (def.clause_sign == small_sign) {
+		def.clause_sign = small_or_equal_sign;
+		def.clause_const -= 1;
+	}
+	else if (def.clause_sign == big_sign) {
+		def.clause_sign = big_or_equal_sign;
+		def.clause_const += 1;
+	}
+
+	// Next, transform "<=" clauses into ">=" ones by negating
+	// all coefficients and the constant
+	if (def.clause_sign == small_or_equal_sign) {
+		def.clause_sign  = big_or_equal_sign;
+		def.clause_const = -def.clause_const;
+
+		for (int i = 0; i < def.coefs.size(); i++) {
+			def.coefs[i] = -def.coefs[i];
+		}
+	}
+
+	// Now eliminate negative coefficients using the reduction
+	// a*x => a(1 - ~x)
+	for (int i = 0; i < def.coefs.size(); i++) {
+		if (def.coefs[i] < 0) {
+			def.coefs[i] = -def.coefs[i];
+			def.lits[i] = ~def.lits[i];
+			def.clause_const += def.coefs[i];
+		}
+	}
+
+	std::cout << def << std::endl;
+
+	// Now clauses with a non-positive constant are trivially satisfied
+	if (def.clause_const <= 0)
+		return true;
+
+	// The next step is to reduce coefficients that are larger than
+	// the clause constant. Helps to avoid overflow.
+	for (int i = 0; i < def.coefs.size(); i++) {
+		if (def.coefs[i] > def.clause_const) {
+			def.coefs[i] = def.clause_const;
+		}
+	}
+
+	std::cout << def << std::endl;
+
+	// And we can also discard trivially unsatisfiable clauses
+	PbWeightType sum = 0;
+	for (int i = 0; i < def.coefs.size(); i++) {
+		sum += def.coefs[i];
+	}
+
+	if (sum < def.clause_const)
+		return false;
+
+
+	// TODO: possible improvements - eliminate duplicate variables/literals,
+	// use current assignment (to respect assumptions), and propogate
+
+	// TODO: sort
+
+	// Allocate new clause and store it in the solver
+	CRef ref = ca.allocPB(def);
+	pbClauses.push(ref);
+
+	// TODO: fill watch structure
+
+	// Update statistics
+	num_pb_clauses++, pb_literals += def.lits.size();
+
+	return true;
+}
 
 // Revert to the state at given level (keeping all assignment at 'level' but not beyond).
 //

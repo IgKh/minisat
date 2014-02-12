@@ -31,6 +31,10 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/mtl/Map.h"
 #include "minisat/mtl/Alloc.h"
 
+
+#include <iostream>
+
+
 namespace Minisat {
 
 //=================================================================================================
@@ -225,11 +229,11 @@ public:
 typedef int PbWeightType;
 
 enum PbConstraintSign {
-	big_or_equal_sign = 0,
-	big_sign=1,
+	big_or_equal_sign 	= 0,
+	big_sign			= 1,
 	small_or_equal_sign = 2,
-	small_sign=3,
-	equal_sign = 4
+	small_sign 			= 3,
+	equal_sign 			= 4
 };
 
 // A convenience structure for defining PB clauses
@@ -238,6 +242,46 @@ struct PbClauseDef {
 	PbConstraintSign clause_sign;
 	vec<Lit> lits;
 	vec<PbWeightType> coefs;
+
+	// Default c'tor
+	PbClauseDef() {
+	}
+
+	// Copy c'tor
+	PbClauseDef(const PbClauseDef& other):
+		clause_const(other.clause_const), clause_sign(other.clause_sign) {
+
+		other.lits.copyTo(lits);
+		other.coefs.copyTo(coefs);
+	}
+
+	friend std::ostream& operator<<(std::ostream& out, const PbClauseDef& def) {
+		for (int i = 0; i < def.lits.size(); i++) {
+			if (def.coefs[i] < 0) {
+				out << def.coefs[i];
+			}
+			else {
+				out << "+" << def.coefs[i];
+			}
+
+			out << "x";
+			if (!sign(def.lits[i])) {
+				out << "~";
+			}
+			out << var(def.lits[i]) << " ";
+		}
+
+		switch (def.clause_sign) {
+		case big_or_equal_sign:		out << ">="; break;
+		case big_sign:				out << "> "; break;
+		case small_or_equal_sign:	out << "<="; break;
+		case small_sign:			out << "< "; break;
+		case equal_sign:			out << "= "; break;
+		}
+
+		out << " " << def.clause_const;
+		return out;
+	}
 };
 
 // The actual constraint class
@@ -253,8 +297,6 @@ class PbClause {
 
 	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
 	PbClause(const PbClauseDef& def) {
-		// TODO: Simplify def
-
 		header.type	= 1;
 		header.size = def.lits.size();
 		rhs 		= def.clause_const;

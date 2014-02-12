@@ -107,8 +107,9 @@ int main(int argc, char** argv)
         FILE* res = (argc >= 3) ? fopen(argv[2], "wb") : NULL;
         
         if (S.verbosity > 0){
-            printf("|  Number of variables:  %12d                                         |\n", S.nVars());
-            printf("|  Number of clauses:    %12d                                         |\n", S.nClauses()); }
+            printf("|  Number of variables:   %12d                                        |\n", S.nVars());
+            printf("|  Number of CNF clauses: %12d                                        |\n", S.nClauses());
+            printf("|  Number of PB  clauses: %12d                                        |\n", S.nPbClauses()); }
         
         double parsed_time = cpuTime();
         if (S.verbosity > 0){
