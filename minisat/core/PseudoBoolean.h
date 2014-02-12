@@ -1,11 +1,11 @@
 /*
  * PseudoBoolean.h
  *
+ * Parser for OPB format files
+ *
  *  Created on: 12 αιπε 2014
  *      Author: Roey
  */
-
-
 #ifndef PSEUDOBOOLEAN_H_
 #define PSEUDOBOOLEAN_H_
 
@@ -56,12 +56,15 @@ static void readPbClause(B& in, Solver& S, PbClauseDef& clause) {
     		clause.coefs.push(parsed_coef);
     		if(*in==' ') ++in;
     		if(*in=='x') ++in;
-    		 parsed_lit = parseInt(in);
-    		 if (parsed_lit == 0) break;
-    		 var = abs(parsed_lit)-1;
-    		 while (var >= S.nVars()) S.newVar();
-    		 clause.lits.push( (parsed_lit > 0) ? mkLit(var) : ~mkLit(var) );
-    		 //printf("%d:x%d ",parsed_coef,parsed_lit);
+    		parsed_lit = parseInt(in);
+    		if (parsed_lit == 0)
+    			break;
+
+    		var = abs(parsed_lit) - 1;
+    		while (var >= S.nVars())
+    			S.newVar();
+
+    		clause.lits.push(mkLit(var, parsed_lit > 0));
     	}
     }
 }
@@ -80,15 +83,13 @@ static void parse_OPB_main(B& in, Solver& S, bool strictp = false) {
 	    while ((*in==' ')||(*in=='\n')) ++in;//skip spaces
 	    while (*in=='*') skipLine(in);
 		if (*in == EOF) break;
-		//printf("%c",*in);
 
 		PbClauseDef clause;
 		readPbClause(in, S,clause);
-        S.addPbClause(clause);//TODO addPBClause(PSClause clause);
+        S.addPbClause(clause);
 
         ++in;
 	}
-	printf("done!");
 }
 }
 #endif /* PSEUDOBOOLEAN_H_ */
