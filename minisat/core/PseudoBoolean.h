@@ -64,7 +64,7 @@ static void readPbClause(B& in, Solver& S, PbClauseDef& clause) {
     		while (var >= S.nVars())
     			S.newVar();
 
-    		clause.lits.push(mkLit(var, parsed_lit > 0));
+    		clause.lits.push(mkLit(var, parsed_lit < 0));
     	}
     }
 }

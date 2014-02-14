@@ -265,7 +265,7 @@ struct PbClauseDef {
 			}
 
 			out << "x";
-			if (!sign(def.lits[i])) {
+			if (sign(def.lits[i])) {
 				out << "~";
 			}
 			out << var(def.lits[i]) << " ";
