@@ -211,7 +211,9 @@ void Solver::detachClause(CRef cr, bool strict){
 
 
 void Solver::removeClause(CRef cr) {
-    Clause& c = ca[cr];
+    assert(!ca.isPbClause(cr));
+
+	Clause& c = ca[cr];
     detachClause(cr);
     // Don't leave pointers to free'd memory!
     if (locked(c)) vardata[var(c[0])].reason = CRef_Undef;
@@ -279,8 +281,6 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 		}
 	}
 
-	std::cout << def << std::endl;
-
 	// Now clauses with a non-positive constant are trivially satisfied
 	if (def.clause_const <= 0)
 		return true;
@@ -293,25 +293,39 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 		}
 	}
 
-	std::cout << def << std::endl;
+	// Convert to a vector of literal pairs, and also calculate the
+	// coefficient sum, max and min along the way.
+	// FIXME: not very good
+	PbWeightType sum = 0, min = def.coefs[0], max = def.coefs[0];
+	vec<PbLitPair> lhs;
 
-	// And we can also discard trivially unsatisfiable clauses
-	PbWeightType sum = 0;
 	for (int i = 0; i < def.coefs.size(); i++) {
 		sum += def.coefs[i];
+
+		if (def.coefs[i] < min) min = def.coefs[i];
+		if (def.coefs[i] > max) max = def.coefs[i];
+
+		lhs.push(PbLitPair(def.lits[i], def.coefs[i]));
 	}
 
+	// Discard trivially unsatisfiable clauses
 	if (sum < def.clause_const)
 		return false;
 
-
+	// If all coefficients are equal, and they are equal to the clause
+	// constant - than this is essentially a CNF clause. Treat it as such
+	// to reduce the overhead of handling PB clauses.
+	// TODO: Do something smarter? Extract CNF partials (like sat4j or minisatp)?
+	if (max == min && max == def.clause_const) {
+		return addClause(def.lits);
+	}
 	// TODO: possible improvements - eliminate duplicate variables/literals,
-	// use current assignment (to respect assumptions), and propogate
-
-	// TODO: sort
+	// use current assignment (to respect assumptions), and propagate
 
 	// Allocate new clause and store it in the solver
-	CRef ref = ca.allocPB(def);
+	sort(lhs, PbLitPairWeightOrdering());
+
+	CRef ref = ca.allocPB(lhs, def.clause_const);
 	pbClauses.push(ref);
 
 	// TODO: fill watch structure

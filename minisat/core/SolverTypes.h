@@ -227,6 +227,7 @@ public:
 //=================================================================================================
 // PbClause -- a simple class for representing a pseudo boolean constraint:
 typedef int PbWeightType;
+//typedef uint32_t PbPositiveWeightType;
 
 enum PbConstraintSign {
 	big_or_equal_sign 	= 0,
@@ -236,7 +237,7 @@ enum PbConstraintSign {
 	equal_sign 			= 4
 };
 
-// A convenience structure for defining PB clauses
+// A convenience structure for defining PB clauses in the general case
 struct PbClauseDef {
 	PbWeightType clause_const;
 	PbConstraintSign clause_sign;
@@ -284,6 +285,25 @@ struct PbClauseDef {
 	}
 };
 
+// A single entry within a PB clause (literal + coefficient)
+struct PbLitPair {
+	Lit lit;
+	PbWeightType coef;
+
+	PbLitPair(): lit(), coef() {}
+	PbLitPair(const Lit& lit_, PbWeightType coef_): lit(lit_), coef(coef_) {
+	}
+
+	// Identity of the entry determined by its' literal
+	bool operator ==(PbLitPair p) const { return lit == p.lit; }
+	bool operator !=(PbLitPair p) const { return lit != p.lit; }
+};
+
+// An ordering for PbLitPairs, ranking them in decreasing coefficient size
+struct PbLitPairWeightOrdering {
+	bool operator ()(PbLitPair a, PbLitPair b) const { return a.coef > b.coef; }
+};
+
 // The actual constraint class
 class PbClause {
 	struct {
@@ -291,24 +311,27 @@ class PbClause {
 		unsigned size	: 31;
 	} header;
 	PbWeightType rhs;
-	struct { Lit lit; PbWeightType weight; } data[0];
+	PbLitPair data[0];
 
 	friend class ClauseAllocator;
 
 	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
-	PbClause(const PbClauseDef& def) {
+	PbClause(const vec<PbLitPair>& lhs, PbWeightType rhs): rhs(rhs) {
 		header.type	= 1;
-		header.size = def.lits.size();
-		rhs 		= def.clause_const;
+		header.size = lhs.size();
 
-		for (int i = 0; i < header.size; i++) {
-			data[i].lit = def.lits[i];
-			data[i].weight = def.coefs[i];
-		}
+		for (int i = 0; i < lhs.size(); i++)
+			data[i] = lhs[i];
+	}
+
+	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
+	PbClause(const PbClause& from): header(from.header), rhs(from.rhs) {
+		for (int i = 0; i < from.size(); i++)
+			data[i] = from.data[i];
 	}
 
 public:
-	unsigned size() const {
+	int size() const {
 		return header.size;
 	}
 };
@@ -325,9 +348,7 @@ class ClauseAllocator
         return (sizeof(Clause) + (sizeof(Lit) * (size + (int)has_extra))) / sizeof(uint32_t); }
 
     static uint32_t pbClauseWord32Size(int size){
-            return (sizeof(PbClause) + sizeof(PbWeightType) +
-            		((sizeof(Lit) + sizeof(PbWeightType)) * size)) / sizeof(uint32_t); }
-
+    	return (sizeof(PbClause) + (sizeof(PbLitPair) * size)) / sizeof(uint32_t); }
 
  public:
     enum { Unit_Size = RegionAllocator<uint32_t>::Unit_Size };
@@ -359,14 +380,18 @@ class ClauseAllocator
         new (lea(cid)) Clause(from, use_extra);
         return cid; }
 
-    CRef allocPB(const PbClauseDef& def)
+    CRef allocPB(const vec<PbLitPair>& lhs, PbWeightType rhs)
     {
-    	assert(def.lits.size() == def.coefs.size());
-
-    	CRef cid = ra.alloc(pbClauseWord32Size(def.lits.size()));
-    	new (lea(cid)) PbClause(def);
-
+    	CRef cid = ra.alloc(pbClauseWord32Size(lhs.size()));
+    	new (lea(cid)) PbClause(lhs, rhs);
     	return cid;
+    }
+
+    CRef allocPb(const PbClause& from)
+    {
+    	CRef cid = ra.alloc(pbClauseWord32Size(from.size()));
+        new (lea(cid)) PbClause(from);
+        return cid;
     }
 
     uint32_t size      () const      { return ra.size(); }
@@ -378,13 +403,17 @@ class ClauseAllocator
     Clause&       operator[](CRef r)         { return (Clause&)ra[r]; }
     const Clause& operator[](CRef r) const   { return (Clause&)ra[r]; }
     Clause*       lea       (CRef r)         { return (Clause*)ra.lea(r); }
-    const Clause* lea       (CRef r) const   { return (Clause*)ra.lea(r);; }
+    const Clause* lea       (CRef r) const   { return (Clause*)ra.lea(r); }
     CRef          ael       (const Clause* t){ return ra.ael((uint32_t*)t); }
+
+    // Deref for PB clauses
+    PbClause&       getPbClause(CRef r)       { return (PbClause&)ra[r]; }
+    const PbClause& getPbClause(CRef r) const { return (PbClause&)ra[r]; }
 
     void free(CRef cid)
     {
     	if (isPbClause(cid)) {
-    		PbClause& pbc = (PbClause&)ra[cid];
+    		PbClause& pbc = getPbClause(cid);
     		ra.free(pbClauseWord32Size(pbc.size()));
     	}
     	else {
