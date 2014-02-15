@@ -301,7 +301,13 @@ struct PbLitPair {
 
 // An ordering for PbLitPairs, ranking them in decreasing coefficient size
 struct PbLitPairWeightOrdering {
-	bool operator ()(PbLitPair a, PbLitPair b) const { return a.coef > b.coef; }
+	bool operator ()(PbLitPair a, PbLitPair b) const { 
+		if (a.coef > b.coef)
+			return true;
+		if (a.coef == b.coef)
+			return toInt(a.lit) < toInt(b.lit);
+		return false;
+	}
 };
 
 // The actual constraint class
