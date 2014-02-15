@@ -86,6 +86,7 @@ Solver::Solver() :
   , pb_literals(0), learnts_literals(0), max_literals(0), tot_literals(0)
 
   , watches            (WatcherDeleted(ca))
+  , pbWatches          (PbWatcherDeleted())
   , order_heap         (VarOrderLt(activity))
   , ok                 (true)
   , cla_inc            (1)
@@ -128,6 +129,8 @@ Var Solver::newVar(lbool upol, bool dvar)
 
     watches  .init(mkLit(v, false));
     watches  .init(mkLit(v, true ));
+    pbWatches.init(mkLit(v, false));
+    pbWatches.init(mkLit(v, true ));
     assigns  .insert(v, l_Undef);
     vardata  .insert(v, mkVarData(CRef_Undef, 0));
     activity .insert(v, rnd_init_act ? drand(random_seed) * 0.00001 : 0);
@@ -329,6 +332,28 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 	pbClauses.push(ref);
 
 	// TODO: fill watch structure
+	pbWatchersData.insert(ref, PbWatchersData());
+
+	PbWatchersData& data = pbWatchersData[ref];
+	PbWeightType aMax = lhs[0].coef;
+
+	for (int i = 0; i < lhs.size(); i++) {
+		if (data.sum >= def.clause_const + aMax)
+			break;
+
+		data.sum += lhs[i].coef;
+		data.lits.insert(lhs[i].lit);
+		pbWatches[~(lhs[i].lit)].push(PbWatcher(ref, lhs[i].coef));
+	}
+	assert (data.sum >= def.clause_const);
+
+	for (int i = 0; i < lhs.size(); i++) {
+		aMax = lhs[i].coef;
+		if (data.sum >= def.clause_const + aMax)
+			break;
+
+		uncheckedEnqueue(lhs[i].lit, ref);
+	}
 
 	// Update statistics
 	num_pb_clauses++, pb_literals += def.lits.size();
@@ -408,6 +433,11 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
     int pathC = 0;
     Lit p     = lit_Undef;
 
+    if (ca.isPbClause(confl)) {
+    	analyzePB(confl, out_learnt, out_btlevel);
+    	return;
+    }
+
     // Generate conflict clause:
     //
     out_learnt.push();      // (leave room for the asserting literal)
@@ -459,7 +489,8 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
             if (reason(x) == CRef_Undef)
                 out_learnt[j++] = out_learnt[i];
             else{
-                Clause& c = ca[reason(var(out_learnt[i]))];
+                // FIXME: Might be a PbClause
+            	Clause& c = ca[reason(var(out_learnt[i]))];
                 for (int k = 1; k < c.size(); k++)
                     if (!seen[var(c[k])] && level(var(c[k])) > 0){
                         out_learnt[j++] = out_learnt[i];
@@ -491,6 +522,43 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
     }
 
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
+}
+
+void Solver::analyzePB(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
+{
+	assert (ca.isPbClause(confl));
+
+	out_learnt.push();
+
+	PbClause& pbc = ca.getPbClause(confl);
+	PbWeightType sum = 0, slack = pbc.getRhs() - pbc.getLhsSum();
+
+	for (int i = 0; i < pbc.size(); i++) {
+		if (sum >= slack)
+			break;
+
+		if (value(pbc[i].lit) == l_False) {
+			sum += pbc[i].coef;
+			out_learnt.push(~(pbc[i].lit));
+		}
+	}
+
+	// Find correct backtrack level:
+	//
+	assert (out_learnt.size() > 0);
+
+	int max_i = 1;
+	// Find the first literal assigned at the next-highest level:
+	for (int i = 2; i < out_learnt.size(); i++)
+		if (level(var(out_learnt[i])) > level(var(out_learnt[max_i])))
+			max_i = i;
+
+	// Swap-in this literal at index 1:
+	Lit p             = out_learnt[max_i];
+	out_learnt[max_i] = out_learnt[1];
+	out_learnt[1]     = p;
+	out_btlevel       = level(var(p));
+	out_learnt[0]     = p;
 }
 
 
@@ -620,6 +688,10 @@ CRef Solver::propagate()
 
     while (qhead < trail.size()){
         Lit            p   = trail[qhead++];     // 'p' is enqueued fact to propagate.
+
+        //
+        // Propagate CNF
+        //
         vec<Watcher>&  ws  = watches.lookup(p);
         Watcher        *i, *j, *end;
         num_props++;
@@ -666,6 +738,17 @@ CRef Solver::propagate()
         NextClause:;
         }
         ws.shrink(i - j);
+
+        //
+        // Propagate PB
+        //
+        //num_props++;
+
+        CRef pbConflict = propagatePB(p);
+        if (pbConflict != CRef_Undef) {
+        	confl = pbConflict;
+        	qhead = trail.size();
+        }
     }
     propagations += num_props;
     simpDB_props -= num_props;
@@ -673,6 +756,77 @@ CRef Solver::propagate()
     return confl;
 }
 
+
+CRef Solver::propagatePB(Lit p)
+{
+	CRef confl = CRef_Undef;
+
+	vec<PbWatcher>& watchers = pbWatches.lookup(p);
+	PbWatcher *i, *j, *end;
+
+	for (i = j = (PbWatcher*)watchers, end = i + watchers.size();  i != end;) {
+		CRef cref = i->cref;
+		PbWatchersData& data = pbWatchersData[cref];
+		PbClause& pbc = ca.getPbClause(cref);
+
+		// Calculate aMax. It's OK to initialize aMax to 0, because if
+		// all literals are false, the clause is unsat anyway and the
+		// value of aMax doesn't matter.
+		PbWeightType aMax = 0;
+		for (int k = 0; k < pbc.size(); k++) {
+			if (value(pbc[k].lit) != l_False)
+				aMax = pbc[k].coef;
+		}
+
+		// Tentatively remove ~p from the watch set
+		data.sum -= i->coef;
+		data.lits.erase(~p);
+
+		// Update watches
+		for (int k = 0; k < pbc.size(); k++) {
+			if (data.sum >= pbc.getRhs() + aMax)
+				break;
+
+			if (value(pbc[k].lit) != l_False && !data.hasLit(pbc[k].lit)) {
+				data.sum += pbc[k].coef;
+				data.lits.insert(pbc[k].lit);
+				pbWatches[~(pbc[k].lit)].push(PbWatcher(cref, pbc[k].coef));
+			}
+		}
+
+		// Conflict?
+		if (data.sum < pbc.getRhs()) {
+			confl = cref;
+
+			//  Return ~p to the watches (It's OK - we're going to backtrack now anyway)
+			data.sum += i->coef;
+			data.lits.insert(~p);
+
+			// Copy the remaining watches
+			*j++ = *i++;
+			while (i < end)
+				*j++ = *i++;
+
+			continue;
+		}
+		i++;
+
+		// Infer variables
+		for (int k = 0; k < pbc.size(); k++) {
+			if (value(pbc[k].lit) != l_Undef || !data.hasLit(pbc[k].lit))
+				continue;
+
+			aMax = pbc[k].coef;
+			if (data.sum >= pbc.getRhs() + aMax)
+				break;
+
+			uncheckedEnqueue(pbc[k].lit, cref);
+		}
+	}
+	watchers.shrink(i - j);
+
+	return confl;
+}
 
 /*_________________________________________________________________________________________________
 |

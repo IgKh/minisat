@@ -317,21 +317,24 @@ class PbClause {
 		unsigned size	: 31;
 	} header;
 	PbWeightType rhs;
+	PbWeightType lhsSum;
 	PbLitPair data[0];
 
 	friend class ClauseAllocator;
 
 	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
-	PbClause(const vec<PbLitPair>& lhs, PbWeightType rhs): rhs(rhs) {
+	PbClause(const vec<PbLitPair>& lhs, PbWeightType rhs): rhs(rhs), lhsSum(0) {
 		header.type	= 1;
 		header.size = lhs.size();
 
-		for (int i = 0; i < lhs.size(); i++)
+		for (int i = 0; i < lhs.size(); i++) {
 			data[i] = lhs[i];
+			lhsSum += lhs[i].coef;
+		}
 	}
 
 	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
-	PbClause(const PbClause& from): header(from.header), rhs(from.rhs) {
+	PbClause(const PbClause& from): header(from.header), rhs(from.rhs), lhsSum(from.lhsSum) {
 		for (int i = 0; i < from.size(); i++)
 			data[i] = from.data[i];
 	}
@@ -340,6 +343,17 @@ public:
 	int size() const {
 		return header.size;
 	}
+
+	PbWeightType getRhs() const {
+		return rhs;
+	}
+
+	PbWeightType getLhsSum() const {
+		return lhsSum;
+	}
+
+	PbLitPair&       operator [] (int i)       { return data[i]; }
+	const PbLitPair& operator [] (int i) const { return data[i]; }
 };
 
 //=================================================================================================

@@ -28,6 +28,9 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/utils/Options.h"
 #include "minisat/core/SolverTypes.h"
 
+// XXX
+#include <set>
+
 
 namespace Minisat {
 
@@ -177,6 +180,34 @@ protected:
         bool operator()(const Watcher& w) const { return ca[w.cref].mark() == 1; }
     };
 
+    struct PbWatcher {
+        CRef cref;
+        PbWeightType coef;
+
+        PbWatcher(CRef cr, PbWeightType coef) : cref(cr), coef(coef) {}
+        bool operator==(const PbWatcher& w) const { return cref == w.cref; }
+        bool operator!=(const PbWatcher& w) const { return cref != w.cref; }
+    };
+
+    struct PbWatcherDeleted
+    {
+    	bool operator()(const PbWatcher& w) const { return false; }
+    };
+
+    struct PbWatchersData
+    {
+    	// TODO: std::set is problematic. Use LSet if possible
+    	std::set<Lit> lits;  // Literals watching this clause
+    	PbWeightType  sum;   // The sum of the coefficients of lits in this clause
+
+    	PbWatchersData(): sum(0) {
+    	}
+
+    	bool hasLit(Lit l) const {
+    		return lits.count(l) > 0;
+    	}
+    };
+
     struct VarOrderLt {
         const IntMap<Var, double>&  activity;
         bool operator () (Var x, Var y) const { return activity[x] > activity[y]; }
@@ -206,6 +237,11 @@ protected:
     VMap<VarData>       vardata;          // Stores reason and level for each variable.
     OccLists<Lit, vec<Watcher>, WatcherDeleted, MkIndexLit>
                         watches;          // 'watches[lit]' is a list of constraints watching 'lit' (will go there if literal becomes true).
+
+    OccLists<Lit, vec<PbWatcher>, PbWatcherDeleted, MkIndexLit>
+                        pbWatches;        // 'pbWatches[lit]' is a list of PB constraints watching 'lit'
+
+    CMap<PbWatchersData>pbWatchersData;
 
     Heap<Var,VarOrderLt>order_heap;       // A priority queue of variables ordered with respect to the variable activity.
 
@@ -249,8 +285,10 @@ protected:
     void     uncheckedEnqueue (Lit p, CRef from = CRef_Undef);                         // Enqueue a literal. Assumes value of literal is undefined.
     bool     enqueue          (Lit p, CRef from = CRef_Undef);                         // Test if fact 'p' contradicts current state, enqueue otherwise.
     CRef     propagate        ();                                                      // Perform unit propagation. Returns possibly conflicting clause.
+    CRef     propagatePB      (Lit p);                                                 // Perform propagation on PB clauses watched by ~p. Returns possibly conflicting clause.
     void     cancelUntil      (int level);                                             // Backtrack until a certain level.
     void     analyze          (CRef confl, vec<Lit>& out_learnt, int& out_btlevel);    // (bt = backtrack)
+    void     analyzePB        (CRef confl, vec<Lit>& out_learnt, int& out_btlevel);
     void     analyzeFinal     (Lit p, LSet& out_conflict);                             // COULD THIS BE IMPLEMENTED BY THE ORDINARIY "analyze" BY SOME REASONABLE GENERALIZATION?
     bool     litRedundant     (Lit p);                                                 // (helper method for 'analyze()')
     lbool    search           (int nof_conflicts);                                     // Search for a given number of conflicts.
