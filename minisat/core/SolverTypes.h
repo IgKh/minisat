@@ -31,10 +31,6 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/mtl/Map.h"
 #include "minisat/mtl/Alloc.h"
 
-
-#include <iostream>
-
-
 namespace Minisat {
 
 //=================================================================================================
@@ -133,7 +129,6 @@ inline lbool toLbool(int   v) { return lbool((uint8_t)v);  }
   const lbool l_False((uint8_t)1);
   const lbool l_Undef((uint8_t)2);
 #endif
-
 
 //=================================================================================================
 // Clause -- a simple class for representing a clause:
@@ -255,34 +250,6 @@ struct PbClauseDef {
 		other.lits.copyTo(lits);
 		other.coefs.copyTo(coefs);
 	}
-
-	friend std::ostream& operator<<(std::ostream& out, const PbClauseDef& def) {
-		for (int i = 0; i < def.lits.size(); i++) {
-			if (def.coefs[i] < 0) {
-				out << def.coefs[i];
-			}
-			else {
-				out << "+" << def.coefs[i];
-			}
-
-			out << "x";
-			if (sign(def.lits[i])) {
-				out << "~";
-			}
-			out << var(def.lits[i]) << " ";
-		}
-
-		switch (def.clause_sign) {
-		case big_or_equal_sign:		out << ">="; break;
-		case big_sign:				out << "> "; break;
-		case small_or_equal_sign:	out << "<="; break;
-		case small_sign:			out << "< "; break;
-		case equal_sign:			out << "= "; break;
-		}
-
-		out << " " << def.clause_const;
-		return out;
-	}
 };
 
 // A single entry within a PB clause (literal + coefficient)
@@ -313,28 +280,39 @@ struct PbLitPairWeightOrdering {
 // The actual constraint class
 class PbClause {
 	struct {
-		unsigned type 	: 1;
-		unsigned size	: 31;
+		unsigned type 	 : 1;
+		unsigned reloced : 1;
+		unsigned size	 : 30;
 	} header;
-	PbWeightType rhs;
-	PbWeightType lhsSum;
+
+	// The clause either has the core data (rhs and lhsSum), or it
+	// is relocated and contains a pointer to the new location
+	union {
+		struct { PbWeightType rhs; PbWeightType lhsSum; } core;
+		CRef rel;
+	} auxData;
+
 	PbLitPair data[0];
 
 	friend class ClauseAllocator;
 
 	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
-	PbClause(const vec<PbLitPair>& lhs, PbWeightType rhs): rhs(rhs), lhsSum(0) {
-		header.type	= 1;
-		header.size = lhs.size();
+	PbClause(const vec<PbLitPair>& lhs, PbWeightType rhs) {
+		header.type	   = 1;
+		header.reloced = 0;
+		header.size    = lhs.size();
+
+		auxData.core.lhsSum = 0;
+		auxData.core.rhs = rhs;
 
 		for (int i = 0; i < lhs.size(); i++) {
 			data[i] = lhs[i];
-			lhsSum += lhs[i].coef;
+			auxData.core.lhsSum += lhs[i].coef;
 		}
 	}
 
 	// NOTE: This constructor cannot be used directly (doesn't allocate enough memory).
-	PbClause(const PbClause& from): header(from.header), rhs(from.rhs), lhsSum(from.lhsSum) {
+	PbClause(const PbClause& from): header(from.header), auxData(from.auxData) {
 		for (int i = 0; i < from.size(); i++)
 			data[i] = from.data[i];
 	}
@@ -345,12 +323,16 @@ public:
 	}
 
 	PbWeightType getRhs() const {
-		return rhs;
+		return auxData.core.rhs;
 	}
 
 	PbWeightType getLhsSum() const {
-		return lhsSum;
+		return auxData.core.lhsSum;
 	}
+
+	bool reloced   ()       const { return header.reloced; }
+	CRef relocation()       const { return auxData.rel; }
+	void relocate  (CRef c)       { header.reloced = 1; auxData.rel = c; }
 
 	PbLitPair&       operator [] (int i)       { return data[i]; }
 	const PbLitPair& operator [] (int i) const { return data[i]; }
@@ -445,7 +427,15 @@ class ClauseAllocator
     void reloc(CRef& cr, ClauseAllocator& to)
     {
     	if (isPbClause(cr)) {
+    		PbClause& pbc = getPbClause(cr);
 
+    		if (pbc.reloced()) {
+    			cr = pbc.relocation();
+    		}
+    		else {
+    			cr = to.allocPb(pbc);
+    			pbc.relocate(cr);
+    		}
     	}
     	else {
     		Clause& c = operator[](cr);
@@ -565,6 +555,8 @@ class CMap
     HashTable map;
         
  public:
+    typedef typename HashTable::Pair PairType;
+
     // Size-operations:
     void     clear       ()                           { map.clear(); }
     int      size        ()                const      { return map.elems(); }
@@ -582,7 +574,7 @@ class CMap
 
     // Iteration (not transparent at all at the moment):
     int  bucket_count() const { return map.bucket_count(); }
-    const vec<typename HashTable::Pair>& bucket(int i) const { return map.bucket(i); }
+    const vec<PairType>& bucket(int i) const { return map.bucket(i); }
 
     // Move contents to other map:
     void moveTo(CMap& other){ map.moveTo(other.map); }

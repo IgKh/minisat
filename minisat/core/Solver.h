@@ -29,7 +29,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/core/SolverTypes.h"
 
 // XXX
-#include <set>
+#include <map>
 
 
 namespace Minisat {
@@ -197,14 +197,27 @@ protected:
     struct PbWatchersData
     {
     	// TODO: std::set is problematic. Use LSet if possible
-    	std::set<Lit> lits;  // Literals watching this clause
+    	std::map<Lit, bool> lits;  // Literals watching this clause
     	PbWeightType  sum;   // The sum of the coefficients of lits in this clause
+    	int removed;
 
-    	PbWatchersData(): sum(0) {
+    	PbWatchersData(): sum(0), removed(0) {
     	}
 
-    	bool hasLit(Lit l) const {
-    		return lits.count(l) > 0;
+    	bool isWatching(Lit l) const {
+    		return (lits.count(l) > 0 && lits.at(l) == true);
+    	}
+
+    	void addWatching(Lit l) {
+    		lits[l] = true;
+    	}
+
+    	void removeWatching(Lit l) {
+    		lits[l] = false;
+
+    		if (++removed == 1000) {
+
+    		}
     	}
     };
 
@@ -241,7 +254,7 @@ protected:
     OccLists<Lit, vec<PbWatcher>, PbWatcherDeleted, MkIndexLit>
                         pbWatches;        // 'pbWatches[lit]' is a list of PB constraints watching 'lit'
 
-    CMap<PbWatchersData>pbWatchersData;
+    CMap<PbWatchersData*> pbWatchersData;
 
     Heap<Var,VarOrderLt>order_heap;       // A priority queue of variables ordered with respect to the variable activity.
 
@@ -265,6 +278,7 @@ protected:
     VMap<char>          seen;
     vec<ShrinkStackElem>analyze_stack;
     vec<Lit>            analyze_toclear;
+    vec<Lit>            analyze_reason;
     vec<Lit>            add_tmp;
 
     double              max_learnts;
@@ -296,6 +310,9 @@ protected:
     void     reduceDB         ();                                                      // Reduce the set of learnt clauses.
     void     removeSatisfied  (vec<CRef>& cs);                                         // Shrink 'cs' to contain only non-satisfied clauses.
     void     rebuildOrderHeap ();
+
+    void     calcReasonCNF    (Clause& c, Lit p, vec<Lit>& out_reason);                // Get the clause literals the caused the clause to infer the
+    void     calcReasonPB     (PbClause& pbc, Lit p, vec<Lit>& out_reason);            // literal p (if defined) or to declare conflict (if undefined)
 
     // Maintaining Variable/Clause activity:
     //
