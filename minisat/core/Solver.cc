@@ -470,16 +470,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
     int pathC = 0;
     Lit p     = lit_Undef;
 
-    //assert (!ca.isPbClause(confl));
-
-    dbg << "Conflict on CNF Clause " << ca[confl] << endl;
-    dbg << "Current assignment: ";
-    for (int i = 0; i < ca[confl].size(); i++) {
-    	Lit l = ca[confl][i];
-    	dbg << l  << " -> " << value(l) << "@" << level(var(l)) << "; ";
-    }
-    dbg << endl;
-
     // Generate conflict clause:
     //
     out_learnt.push();      // (leave room for the asserting literal)
@@ -490,19 +480,15 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
 
         analyze_reason.clear();
         if (ca.isPbClause(confl)) {
-        	dbg << "Analyzing PB " << endl;
         	PbClause& pbc = ca.getPbClause(confl);
         	calcReasonPB(pbc, p, analyze_reason);
         }
         else {
-        	dbg << "Analyzing CNF " << endl;
         	Clause& c = ca[confl];
         	calcReasonCNF(c, p, analyze_reason);
         }
 
-        dbg << "Iterating: ";
         for (int j = 0; j < analyze_reason.size(); j++){
-            dbg << analyze_reason[j] << " ";
         	Lit q = analyze_reason[j];
 
             if (!seen[var(q)] && level(var(q)) > 0){
@@ -514,7 +500,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
                     out_learnt.push(q);
             }
         }
-        dbg << endl;
         
         // Select next clause to look at:
         while (!seen[var(trail[index--])]);
@@ -522,9 +507,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
         confl = reason(var(p));
         seen[var(p)] = 0;
         pathC--;
-
-        dbg << "pathC: " << pathC << " Next p: " << p << endl;
-
     }while (pathC > 0);
     out_learnt[0] = ~p;
 
@@ -576,68 +558,7 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
         out_btlevel       = level(var(p));
     }
 
-    dbg << "Current level is " << decisionLevel() << endl;
-    dbg << "Calculated out level: " << out_btlevel << endl;
-    dbg << "Conflict clause: " << endl;
-    for (int j = 0; j < out_learnt.size(); j++) {
-    	dbg << out_learnt[j] << " ";
-    }
-    dbg << endl;
-
     for (int j = 0; j < analyze_toclear.size(); j++) seen[var(analyze_toclear[j])] = 0;    // ('seen[]' is now cleared)
-}
-
-void Solver::analyzePB(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
-{
-	assert (ca.isPbClause(confl));
-
-	PbClause& pbc = ca.getPbClause(confl);
-
-	dbg << "Conflict on PB Clause" << pbc << endl;
-	dbg << "Current assignment: ";
-	for (int i = 0; i < pbc.size(); i++) {
-		dbg << pbc[i].lit << " -> " << value(pbc[i].lit) << "@" << level(var(pbc[i].lit)) << "; ";
-	}
-	dbg << endl;
-
-	//
-	PbWeightType sum = 0, slack = pbc.getLhsSum() - pbc.getRhs();
-
-	dbg << "Conflict Clause" << endl;
-	for (int i = 0; i < pbc.size(); i++) {
-		if (sum >= slack)
-			break;
-
-		if (value(pbc[i].lit) == l_False) {
-			dbg << var(pbc[i].lit) << " @ " << level(var(pbc[i].lit)) << endl;
-			sum += pbc[i].coef;
-			out_learnt.push(pbc[i].lit);
-		}
-	}
-
-	// Find correct backtrack level:
-	assert (out_learnt.size() > 0);
-
-	int max_level = level(var(out_learnt[0])), curr_level;
-
-	// Find the first literal assigned at the next-highest level:
-	for (int i = 1; i < out_learnt.size(); i++) {
-		curr_level = level(var(out_learnt[i]));
-		dbg << i << "," << curr_level << endl;
-		if (curr_level > max_level) {
-			max_level = curr_level;
-		}
-	}
-
-	dbg << "out_learnt is ";
-	for (int i = 0; i < out_learnt.size(); i++) {
-		dbg << out_learnt[i] << ", ";
-	}
-	dbg << endl;
-
-	out_btlevel = max_level - 1;
-	dbg << "Current level is " << decisionLevel() << endl;
-	dbg << "Calculate bt level is " << out_btlevel << endl;
 }
 
 
@@ -771,7 +692,6 @@ CRef Solver::propagate()
         //
         // Propagate CNF
         //
-        dbg << "Propagating CNF constraints watched by " << p << endl;
         vec<Watcher>&  ws  = watches.lookup(p);
         Watcher        *i, *j, *end;
         num_props++;
@@ -785,8 +705,6 @@ CRef Solver::propagate()
             // Make sure the false literal is data[1]:
             CRef     cr        = i->cref;
             Clause&  c         = ca[cr];
-
-            dbg << "Propagating CNF clause: " << c << endl;
 
             Lit      false_lit = ~p;
             if (c[0] == false_lit)
@@ -813,13 +731,10 @@ CRef Solver::propagate()
                 confl = cr;
                 qhead = trail.size();
 
-                dbg << "CNF conflict!" << endl;
-
                 // Copy the remaining watches:
                 while (i < end)
                     *j++ = *i++;
             }else {
-            	dbg << "CNF - Deduced " << first << endl;
                 uncheckedEnqueue(first, cr);
             }
 
@@ -850,8 +765,6 @@ CRef Solver::propagatePB(Lit p)
 {
 	CRef confl = CRef_Undef;
 
-	dbg << "Propagating PB constraints watched by " << p << endl;
-
 	vec<PbWatcher>& watchers = pbWatches.lookup(p);
 	PbWatcher *i, *j, *end;
 
@@ -859,8 +772,6 @@ CRef Solver::propagatePB(Lit p)
 		CRef cref = i->cref;
 		PbWatchersData* data = pbWatchersData[cref];
 		PbClause& pbc = ca.getPbClause(cref);
-
-		dbg << "Propagating clause: " << pbc << endl;
 
 		// Calculate aMax. It's OK to initialize aMax to 0, because if
 		// all literals are false, the clause is unsat anyway and the
@@ -873,8 +784,6 @@ CRef Solver::propagatePB(Lit p)
 			}
 		}
 
-		dbg << "aMax is " << aMax << endl;
-
 		// Tentatively remove ~p from the watch set
 		data->sum -= i->coef;
 		data->removeWatching(~p);
@@ -884,9 +793,7 @@ CRef Solver::propagatePB(Lit p)
 			if (data->sum >= pbc.getRhs() + aMax)
 				break;
 
-			if (value(pbc[k].lit) != l_False && /*pbc[k].lit != (~p) &&*/ !data->isWatching(pbc[k].lit)) {
-				dbg << "Adding " << pbc[k].lit << " to watch" << endl;
-
+			if (value(pbc[k].lit) != l_False && !data->isWatching(pbc[k].lit)) {
 				data->sum += pbc[k].coef;
 				data->addWatching(pbc[k].lit);
 				pbWatches[~(pbc[k].lit)].push(PbWatcher(cref, pbc[k].coef));
@@ -895,7 +802,6 @@ CRef Solver::propagatePB(Lit p)
 
 		// Conflict?
 		if (data->sum < pbc.getRhs()) {
-			dbg << "Detected Conflict!" << endl;
 			confl = cref;
 
 			//  Return ~p to the watches (It's OK - we're going to backtrack now anyway)
@@ -921,8 +827,6 @@ CRef Solver::propagatePB(Lit p)
 			aMax = pbc[k].coef;
 			if (data->sum >= pbc.getRhs() + aMax)
 				break;
-
-			dbg << "Inferring " << pbc[k].lit << endl;
 
 			// Create surrogate CNF clause asserting the inferred literal (falses -> l)
 			if (propagatePB_surrogate.size() == 0) {
@@ -1099,8 +1003,7 @@ lbool Solver::search(int nof_conflicts)
             conflicts++; conflictC++;
             if (decisionLevel() == 0) return l_False;
 
-
-            dbg << "search: Got Conflict!" << endl;
+#ifdef DEBUG
             if (ca.isPbClause(confl)) {
             	// Try and make sure that this is really conflicting...
             	PbWeightType sum = 0;
@@ -1115,12 +1018,11 @@ lbool Solver::search(int nof_conflicts)
             		std::cout << pbWatchersData[confl]->sum << std::endl;
             	}
             }
-
+#endif
 
             learnt_clause.clear();
             analyze(confl, learnt_clause, backtrack_level);
 
-            dbg << "Backtracking to level " << backtrack_level << endl;
             cancelUntil(backtrack_level);
 
             if (learnt_clause.size() == 1){
@@ -1185,7 +1087,6 @@ lbool Solver::search(int nof_conflicts)
                 decisions++;
                 next = pickBranchLit();
 
-                dbg << "The next literal is: " << next << endl;
                 if (next == lit_Undef)
                     // Model found:
                     return l_True;
