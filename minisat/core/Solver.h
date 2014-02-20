@@ -28,10 +28,6 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "minisat/utils/Options.h"
 #include "minisat/core/SolverTypes.h"
 
-// XXX
-#include <map>
-
-
 namespace Minisat {
 
 //=================================================================================================
@@ -196,8 +192,7 @@ protected:
 
     struct PbWatchersData
     {
-    	// TODO: std::set is problematic. Use LSet if possible
-    	std::map<Lit, bool> lits;  // Literals watching this clause
+    	LMap<bool> lits;     // Literals watching this clause
     	PbWeightType  sum;   // The sum of the coefficients of lits in this clause
     	int removed;
 
@@ -205,14 +200,15 @@ protected:
     	}
 
     	bool isWatching(Lit l) const {
-    		return (lits.count(l) > 0 && lits.at(l) == true);
+    		return (lits.has(l) && lits[l] == true);
     	}
 
     	void addWatching(Lit l) {
-    		lits[l] = true;
+    		lits.insert(l, true);
     	}
 
     	void removeWatching(Lit l) {
+    		assert (isWatching(l));
     		lits[l] = false;
 
     		if (++removed == 1000) {
