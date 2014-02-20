@@ -275,6 +275,7 @@ protected:
     vec<ShrinkStackElem>analyze_stack;
     vec<Lit>            analyze_toclear;
     vec<Lit>            analyze_reason;
+    vec<Lit>            propagatePB_surrogate;
     vec<Lit>            add_tmp;
 
     double              max_learnts;

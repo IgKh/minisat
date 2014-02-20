@@ -428,19 +428,22 @@ void Solver::calcReasonCNF(Clause& c, Lit p, vec<Lit>& out_reason)
 
 void Solver::calcReasonPB(PbClause& pbc, Lit p, vec<Lit>& out_reason)
 {
-	if (p == lit_Undef) {
-		dbg << "Why is PB conflict? " << pbc << endl;
-		for (int i = 0; i < pbc.size(); i++) {
-			dbg << pbc[i].lit << "->" << value(pbc[i].lit) << "@" << level(var(pbc[i].lit)) << " ";
-		}
-		dbg << endl;
+	// PB clauses don't directly propagate anything (they do it via surrogate
+	// CNF clauses), so we shouldn't ever need to explain a propagation
+	assert (p == lit_Undef);
 
-		// TODO: Very simplistic...
-		for (int i = 0; i < pbc.size(); i++) {
-			if (value(pbc[i].lit) == l_False)
-				out_reason.push(pbc[i].lit);
-		}
-		return;
+	bool enoughFalses = false;
+	PbWeightType sum = 0, slack = pbc.getLhsSum() - pbc.getRhs();
+
+	for (int i = 0; i < pbc.size(); i++) {
+		if (sum >= slack)
+			enoughFalses = true;
+
+		Lit l = pbc[i].lit;
+		if (value(l) == l_False && !enoughFalses)
+			out_reason.push(l);
+		else if (value(l) == l_True)
+			out_reason.push(~l);
 	}
 }
 
@@ -530,7 +533,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
 
     int i, j;
     out_learnt.copyTo(analyze_toclear);
-#if 0
     if (ccmin_mode == 2){
         for (i = j = 1; i < out_learnt.size(); i++)
             if (reason(var(out_learnt[i])) == CRef_Undef || !litRedundant(out_learnt[i]))
@@ -543,7 +545,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
             if (reason(x) == CRef_Undef)
                 out_learnt[j++] = out_learnt[i];
             else{
-                // FIXME: Might be a PbClause
             	Clause& c = ca[reason(var(out_learnt[i]))];
                 for (int k = 1; k < c.size(); k++)
                     if (!seen[var(c[k])] && level(var(c[k])) > 0){
@@ -552,7 +553,6 @@ void Solver::analyze(CRef confl, vec<Lit>& out_learnt, int& out_btlevel)
             }
         }
     }else
-#endif
         i = j = out_learnt.size();
 
     max_literals += out_learnt.size();
@@ -877,7 +877,7 @@ CRef Solver::propagatePB(Lit p)
 
 		// Tentatively remove ~p from the watch set
 		data->sum -= i->coef;
-		//data.lits.erase(~p);
+		data->removeWatching(~p);
 
 		// Update watches
 		for (int k = 0; k < pbc.size(); k++) {
@@ -900,7 +900,7 @@ CRef Solver::propagatePB(Lit p)
 
 			//  Return ~p to the watches (It's OK - we're going to backtrack now anyway)
 			data->sum += i->coef;
-			//data.lits.insert(~p);
+			data->addWatching(~p);
 
 			// Copy the remaining watches
 			*j++ = *i++;
@@ -910,10 +910,10 @@ CRef Solver::propagatePB(Lit p)
 			continue;
 		}
 		i++;
-		assert (data->isWatching(~p));
-		data->removeWatching(~p);
 
 		// Infer variables
+		propagatePB_surrogate.clear();
+
 		for (int k = 0; k < pbc.size(); k++) {
 			if (value(pbc[k].lit) != l_Undef || !data->isWatching(pbc[k].lit))
 				continue;
@@ -923,7 +923,25 @@ CRef Solver::propagatePB(Lit p)
 				break;
 
 			dbg << "Inferring " << pbc[k].lit << endl;
-			uncheckedEnqueue(pbc[k].lit, cref);
+
+			// Create surrogate CNF clause asserting the inferred literal (falses -> l)
+			if (propagatePB_surrogate.size() == 0) {
+				propagatePB_surrogate.push();
+
+				for (int m = 0; m < pbc.size(); m++) {
+					if (value(pbc[m].lit) == l_False)
+						propagatePB_surrogate.push(pbc[m].lit);
+				}
+			}
+
+			propagatePB_surrogate[0] = pbc[k].lit;
+			CRef s = ca.alloc(propagatePB_surrogate, true);
+
+			learnts.push(s);
+			attachClause(s);
+			claBumpActivity(ca[s]);
+
+			uncheckedEnqueue(pbc[k].lit, s);
 		}
 	}
 	watchers.shrink(i - j);
