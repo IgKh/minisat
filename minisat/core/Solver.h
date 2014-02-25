@@ -232,7 +232,8 @@ protected:
     // Solver state:
     //
     vec<CRef>           clauses;          // List of problem clauses.
-    vec<CRef>			pbClauses;		  // List of problem PB caluses.
+    vec<CRef>           pbClauses;		  // List of problem PB clauses.
+    vec<CRef>           surrogates;       // List of learnt surrogate clauses.
     vec<CRef>           learnts;          // List of learnt clauses.
     vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
     vec<int>            trail_lim;        // Separator indices for different decision levels in 'trail'.
@@ -304,6 +305,7 @@ protected:
     lbool    search           (int nof_conflicts);                                     // Search for a given number of conflicts.
     lbool    solve_           ();                                                      // Main solve method (assumptions given in 'assumptions').
     void     reduceDB         ();                                                      // Reduce the set of learnt clauses.
+    void     reduceSurrogates ();
     void     removeSatisfied  (vec<CRef>& cs);                                         // Shrink 'cs' to contain only non-satisfied clauses.
     void     rebuildOrderHeap ();
 

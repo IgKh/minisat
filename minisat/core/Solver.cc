@@ -335,7 +335,7 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 	CRef ref = ca.allocPB(lhs, def.clause_const);
 	pbClauses.push(ref);
 
-	// TODO: fill watch structure
+	// Fill watch structure
 	pbWatchersData.insert(ref, new PbWatchersData());
 
 	PbWatchersData* data = pbWatchersData[ref];
@@ -793,10 +793,11 @@ CRef Solver::propagatePB(Lit p)
 			if (data->sum >= pbc.getRhs() + aMax)
 				break;
 
-			if (value(pbc[k].lit) != l_False && !data->isWatching(pbc[k].lit)) {
+			Lit cand = pbc[k].lit;
+			if (value(cand) != l_False && !data->isWatching(cand)) {
 				data->sum += pbc[k].coef;
-				data->addWatching(pbc[k].lit);
-				pbWatches[~(pbc[k].lit)].push(PbWatcher(cref, pbc[k].coef));
+				data->addWatching(cand);
+				pbWatches[~cand].push(PbWatcher(cref, pbc[k].coef));
 			}
 		}
 
@@ -817,35 +818,42 @@ CRef Solver::propagatePB(Lit p)
 		}
 		i++;
 
+#ifndef MINISAT_PB_DONT_INFER
 		// Infer variables
 		propagatePB_surrogate.clear();
 
-		for (int k = 0; k < pbc.size(); k++) {
-			if (value(pbc[k].lit) != l_Undef || !data->isWatching(pbc[k].lit))
+		int sz = pbc.size();
+		for (int k = 0; k < sz; k++) {
+			// We can't use the already existing reference pbc, as surrogate clause
+			// allocation can cause the ClauseAllocator's inner RegionAllocation to
+			// to reallocate itself and under some conditions to move in the memory.
+			// This makes all references and pointer's to a clause's actual RAM location
+			// invalid
+			PbClause& npb = ca.getPbClause(cref);
+
+			if (value(npb[k].lit) != l_Undef || !data->isWatching(npb[k].lit))
 				continue;
 
-			aMax = pbc[k].coef;
-			if (data->sum >= pbc.getRhs() + aMax)
+			aMax = npb[k].coef;
+			if (data->sum >= npb.getRhs() + aMax)
 				break;
 
 			// Create surrogate CNF clause asserting the inferred literal (falses -> l)
 			if (propagatePB_surrogate.size() == 0) {
 				propagatePB_surrogate.push();
 
-				for (int m = 0; m < pbc.size(); m++) {
-					if (value(pbc[m].lit) == l_False)
-						propagatePB_surrogate.push(pbc[m].lit);
+				for (int m = 0; m < npb.size(); m++) {
+					if (value(npb[m].lit) == l_False)
+						propagatePB_surrogate.push(npb[m].lit);
 				}
 			}
 
-			propagatePB_surrogate[0] = pbc[k].lit;
-			CRef s = ca.alloc(propagatePB_surrogate, true);
+			propagatePB_surrogate[0] = npb[k].lit;
 
-			learnts.push(s);
-			attachClause(s);
-			claBumpActivity(ca[s]);
-
-			uncheckedEnqueue(pbc[k].lit, s);
+			CRef s = ca.alloc(propagatePB_surrogate);
+			surrogates.push(s);
+			uncheckedEnqueue(propagatePB_surrogate[0], s);
+#endif
 		}
 	}
 	watchers.shrink(i - j);
@@ -883,6 +891,26 @@ void Solver::reduceDB()
             learnts[j++] = learnts[i];
     }
     learnts.shrink(i - j);
+    checkGarbage();
+}
+
+
+void Solver::reduceSurrogates()
+{
+    int i, j;
+
+    // Discard any non-locked surrogate clauses. Locked clauses are the ones that
+    // are currently used to explain something in the trail.
+    for (i = j = 0; i < surrogates.size(); i++){
+        Clause& c = ca[surrogates[i]];
+        if (!locked(c)) {
+        	c.mark();
+        	ca.free(surrogates[i]);
+        }
+        else
+            surrogates[j++] = surrogates[i];
+    }
+    surrogates.shrink(i - j);
     checkGarbage();
 }
 
@@ -1037,6 +1065,8 @@ lbool Solver::search(int nof_conflicts)
 
             varDecayActivity();
             claDecayActivity();
+
+            reduceSurrogates();
 
             if (--learntsize_adjust_cnt == 0){
                 learntsize_adjust_confl *= learntsize_adjust_inc;
@@ -1356,6 +1386,15 @@ void Solver::relocAll(ClauseAllocator& to)
             clauses[j++] = clauses[i];
         }
     clauses.shrink(i - j);
+
+    // All surrogates:
+    //
+    for (i = j = 0; i < surrogates.size(); i++)
+    	if (!isRemoved(surrogates[i])) {
+    		ca.reloc(surrogates[i], to);
+    		surrogates[j++] = surrogates[i];
+    	}
+    surrogates.shrink(i - j);
 
     // All original PB clauses and watchers:
     //
