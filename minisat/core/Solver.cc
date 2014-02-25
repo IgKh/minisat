@@ -238,7 +238,10 @@ bool Solver::satisfied(const Clause& c) const {
 
 bool Solver::addPbClause(const PbClauseDef& def) {
 	assert(decisionLevel() == 0);
+	assert (def.lits.size() == def.coefs.size());
+
 	if (!ok) return false;
+	if (def.lits.size() == 0) return (ok = false);
 
 	if (def.clause_sign == equal_sign) {
 		// Turn a PB clause with a "=" sign into two inequality
@@ -255,7 +258,6 @@ bool Solver::addPbClause(const PbClauseDef& def) {
 
 bool Solver::addPbCluseIneq(PbClauseDef def) {
 	assert (def.clause_sign != equal_sign);
-	assert (def.lits.size() == def.coefs.size());
 
 	// First, turn strict inequalities into their non-strict counterparts
 	if (def.clause_sign == small_sign) {
@@ -288,13 +290,30 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 		}
 	}
 
+	// Strip literals that are already assigned
+	int i, j;
+	for (i = 0, j = 0; i < def.lits.size(); i++) {
+		if (value(def.lits[i]) == l_Undef) {
+			def.lits[j] = def.lits[i];
+			def.coefs[j] = def.coefs[i];
+			j++;
+		}
+		else if (value(def.lits[i]) == l_True) {
+			def.clause_const -= def.coefs[i];
+		}
+	}
+	def.lits.shrink(i - j);
+	def.coefs.shrink(i - j);
+
+	//if (i - j > 0) std::cout << "Striped " << i - j << " literals" << std::endl;
+
 	// Now clauses with a non-positive constant are trivially satisfied
 	if (def.clause_const <= 0)
 		return true;
 
 	// The next step is to reduce coefficients that are larger than
 	// the clause constant. Helps to avoid overflow.
-	for (int i = 0; i < def.coefs.size(); i++) {
+	for (i = 0; i < def.coefs.size(); i++) {
 		if (def.coefs[i] > def.clause_const) {
 			def.coefs[i] = def.clause_const;
 		}
@@ -302,11 +321,10 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 
 	// Convert to a vector of literal pairs, and also calculate the
 	// coefficient sum, max and min along the way.
-	// FIXME: not very good
 	PbWeightType sum = 0, min = def.coefs[0], max = def.coefs[0];
 	vec<PbLitPair> lhs;
 
-	for (int i = 0; i < def.coefs.size(); i++) {
+	for (i = 0; i < def.coefs.size(); i++) {
 		sum += def.coefs[i];
 
 		if (def.coefs[i] < min) min = def.coefs[i];
@@ -322,12 +340,9 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 	// If all coefficients are equal, and they are equal to the clause
 	// constant - than this is essentially a CNF clause. Treat it as such
 	// to reduce the overhead of handling PB clauses.
-	// TODO: Do something smarter? Extract CNF partials (like sat4j or minisatp)?
 	if (max == min && max == def.clause_const) {
 		return addClause(def.lits);
 	}
-	// TODO: possible improvements - eliminate duplicate variables/literals,
-	// use current assignment (to respect assumptions), and propagate
 
 	// Allocate new clause and store it in the solver
 	sort(lhs, PbLitPairWeightOrdering());
@@ -341,7 +356,7 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 	PbWatchersData* data = pbWatchersData[ref];
 	PbWeightType aMax = lhs[0].coef;
 
-	for (int i = 0; i < lhs.size(); i++) {
+	for (i = 0; i < lhs.size(); i++) {
 		if (data->sum >= def.clause_const + aMax)
 			break;
 
@@ -351,12 +366,12 @@ bool Solver::addPbCluseIneq(PbClauseDef def) {
 	}
 	assert (data->sum >= def.clause_const);
 
-	for (int i = 0; i < lhs.size(); i++) {
+	for (i = 0; i < lhs.size(); i++) {
 		aMax = lhs[i].coef;
 		if (data->sum >= def.clause_const + aMax)
 			break;
 
-		uncheckedEnqueue(lhs[i].lit, ref);
+		uncheckedEnqueue(lhs[i].lit);
 	}
 
 	// Update statistics
@@ -853,8 +868,9 @@ CRef Solver::propagatePB(Lit p)
 			CRef s = ca.alloc(propagatePB_surrogate);
 			surrogates.push(s);
 			uncheckedEnqueue(propagatePB_surrogate[0], s);
-#endif
+
 		}
+#endif
 	}
 	watchers.shrink(i - j);
 
@@ -1030,23 +1046,6 @@ lbool Solver::search(int nof_conflicts)
             // CONFLICT
             conflicts++; conflictC++;
             if (decisionLevel() == 0) return l_False;
-
-#ifdef DEBUG
-            if (ca.isPbClause(confl)) {
-            	// Try and make sure that this is really conflicting...
-            	PbWeightType sum = 0;
-            	PbClause& pbc = ca.getPbClause(confl);
-            	for (int i = 0; i < pbc.size(); i++) {
-            		if (value(pbc[i].lit) != l_False) {
-            			sum += pbc[i].coef;
-            		}
-            	}
-            	if (sum >= pbc.getRhs()) {
-            		std::cout << "BAD!!!!! sum = " << sum << " rhs = " << pbc.getRhs() << std::endl;
-            		std::cout << pbWatchersData[confl]->sum << std::endl;
-            	}
-            }
-#endif
 
             learnt_clause.clear();
             analyze(confl, learnt_clause, backtrack_level);
