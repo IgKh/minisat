@@ -121,7 +121,10 @@ int main(int argc, char** argv)
         sigTerm(SIGINT_interrupt);
        
         if (!S.simplify()){
-            if (res != NULL) fprintf(res, "UNSAT\n"), fclose(res);
+            if (res != NULL) {
+            	fprintf(res, (pb_mode ? "s UNSATISFIABLE\n" : "UNSAT\n"));
+            	fclose(res);
+            }
             if (S.verbosity > 0){
                 printf("===============================================================================\n");
                 printf("Solved by unit propagation\n");
@@ -139,15 +142,22 @@ int main(int argc, char** argv)
         printf(ret == l_True ? "SATISFIABLE\n" : ret == l_False ? "UNSATISFIABLE\n" : "INDETERMINATE\n");
         if (res != NULL){
             if (ret == l_True){
-                fprintf(res, "SAT\n");
+                fprintf(res, pb_mode ? "s SATISFIABLE\n" : "SAT\n");
+                if (pb_mode) fprintf(res, "v");
                 for (int i = 0; i < S.nVars(); i++)
-                    if (S.model[i] != l_Undef)
-                        fprintf(res, "%s%s%d", (i==0)?"":" ", (S.model[i]==l_True)?"":"-", i+1);
-                fprintf(res, " 0\n");
+                    if (S.model[i] != l_Undef) {
+                        if (pb_mode) {
+                        	fprintf(res, " %s", (S.model[i] == l_True) ? "" : "-");
+                        	fprintf(res, "x%d", i + 1);
+                        }
+                        else
+                        	fprintf(res, "%s%s%d", (i==0)?"":" ", (S.model[i]==l_True)?"":"-", i+1);
+                    }
+                if (!pb_mode) fprintf(res, " 0\n");
             }else if (ret == l_False)
-                fprintf(res, "UNSAT\n");
+                fprintf(res, pb_mode ? "s UNSATISFIABLE\n" : "UNSAT\n");
             else
-                fprintf(res, "INDET\n");
+                fprintf(res, pb_mode ? "s UNKNOWN\n" : "INDET\n");
             fclose(res);
         }
         
