@@ -240,7 +240,7 @@ struct PbClauseDef {
 	vec<PbWeightType> coefs;
 
 	// Default c'tor
-	PbClauseDef() {
+	PbClauseDef(): clause_const(0), clause_sign(big_or_equal_sign) {
 	}
 
 	// Copy c'tor

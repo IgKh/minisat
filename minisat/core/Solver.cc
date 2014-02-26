@@ -112,6 +112,9 @@ Solver::Solver() :
 
 Solver::~Solver()
 {
+	for (int i = 0; i < pbClauses.size(); i++) {
+		delete pbWatchersData[pbClauses[i]];
+	}
 }
 
 
